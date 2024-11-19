@@ -521,44 +521,42 @@ class VisionTransformer(nn.Module):
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
 
-        # Positional embedding and class token
+        # Use LayerNorm if norm_layer is None
+        norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
+        act_layer = act_layer or nn.GELU
+
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, in_c + 1, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_ratio)
 
-        # Patch embedding and transformer blocks
         self.patch_embed = embed_layer(img_size=img_size, patch_size=patch_size, in_c=256, embed_dim=768)
         self.blocks = nn.Sequential(*[
             Block(dim=embed_dim, in_chans=in_c, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
-                  qk_scale=qk_scale, drop_ratio=drop_ratio, attn_drop_ratio=attn_drop_ratio, drop_path_ratio=drop_path_ratio,
-                  norm_layer=norm_layer, act_layer=act_layer)
+                  qk_scale=qk_scale, drop_ratio=drop_ratio, attn_drop_ratio=attn_drop_ratio,
+                  drop_path_ratio=drop_path_ratio, norm_layer=norm_layer, act_layer=act_layer)
             for _ in range(depth)
         ])
         self.norm = norm_layer(embed_dim)
 
-        # CBAM addition
         self.cbam = CBAM(embed_dim)
-
-        # Classification head
         self.head = ClassificationHead(input_dim=embed_dim, target_dim=num_classes)
 
     def forward_features(self, x):
-        x = self.patch_embed(x)  # Shape: [batch_size, num_patches, embed_dim]
-        cls_token = self.cls_token.expand(x.size(0), -1, -1)  # Shape: [batch_size, 1, embed_dim]
-        x = torch.cat((cls_token, x), dim=1)  # Concatenate class token
-
+        x = self.patch_embed(x)
+        cls_token = self.cls_token.expand(x.size(0), -1, -1)
+        x = torch.cat((cls_token, x), dim=1)
         x = self.pos_drop(x + self.pos_embed)
         x = self.blocks(x)
         x = self.norm(x)
-
-        return x[:, 0]  # Return class token embedding
+        return x[:, 0]
 
     def forward(self, x):
         x = self.forward_features(x)
-        x = self.cbam(x.unsqueeze(-1).unsqueeze(-1))  # Add CBAM
-        x = x.squeeze(-1).squeeze(-1)  # Remove extra dimensions
-        x = self.head(x)  # Pass through classification head
+        x = self.cbam(x.unsqueeze(-1).unsqueeze(-1))
+        x = x.squeeze(-1).squeeze(-1)
+        x = self.head(x)
         return x
+
 
 def _init_vit_weights(m):
     """
