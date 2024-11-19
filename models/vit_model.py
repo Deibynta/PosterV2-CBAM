@@ -543,24 +543,22 @@ class VisionTransformer(nn.Module):
 
     def forward_features(self, x):
         print(f"Input shape to forward_features: {x.shape}")  # Debugging input shape
-        if len(x.shape) == 3:  # (Batch, Features, Sequence_Length)
-            B, F, L = x.shape
-            try:
-                H, W = int((L // F) ** 0.5), int((L // F) ** 0.5)
-                assert H * W == L // F, "Sequence length is not a perfect square."
-                x = x.view(B, F, H, W)
-            except AssertionError as e:
-                print(f"Error reshaping input: {e}")
-                raise ValueError("Input dimensions are incompatible for reshaping.")
+
+        # Handle flattened input directly
+        if len(x.shape) == 3:  # Input shape: [B, F, C]
+            B, F, C = x.shape
+        else:
+            raise ValueError("Unexpected input dimensions for forward_features.")
 
         print(f"Shape before PatchEmbed: {x.shape}")
-        x = self.patch_embed(x)  # Ensure PatchEmbed receives 4D input
+        x = self.patch_embed(x)  # Ensure PatchEmbed processes the input correctly
         cls_token = self.cls_token.expand(x.size(0), -1, -1)
         x = torch.cat((cls_token, x), dim=1)
         x = self.pos_drop(x + self.pos_embed)
         x = self.blocks(x)
         x = self.norm(x)
         return x[:, 0]
+
 
     def forward(self, x):
         x = self.forward_features(x)
