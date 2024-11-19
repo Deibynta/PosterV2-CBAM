@@ -437,6 +437,7 @@ class pyramid_trans_expr2(nn.Module):
 
         # Ensure the ViT output is reshaped correctly for CBAM
         out = self.VIT(o)  # Output from ViT: [batch_size, 768]
+        print("Shape of output before view:", out.shape)
         out = out.view(out.size(0), 768, 1, 1)  # Reshape to [batch_size, 768, 1, 1]
 
         # Apply CBAM
