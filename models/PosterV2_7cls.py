@@ -435,10 +435,11 @@ class pyramid_trans_expr2(nn.Module):
 
         o = torch.cat([o1, o2, o3], dim=1)
 
-        out = self.VIT(o)
-
-        # Apply CBAM after ViT
-        out = self.cbam_after_vit(out.unsqueeze(-1).unsqueeze(-1)).squeeze(-1).squeeze(-1)
+        # Ensure the ViT output is reshaped correctly for CBAM
+        out = self.VIT(o)  # Output from ViT: [batch_size, 768]
+        out = out.unsqueeze(-1).unsqueeze(-1)  # Reshape to [batch_size, 768, 1, 1]
+        out = self.cbam_after_vit(out)  # Apply CBAM
+        out = out.squeeze(-1).squeeze(-1)  # Reshape back to [batch_size, 768]
 
         return out
 
