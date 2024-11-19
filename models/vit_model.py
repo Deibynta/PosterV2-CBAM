@@ -119,20 +119,23 @@ class PatchEmbed(nn.Module):
         self.grid_size = (img_size[0] // patch_size[0], img_size[1] // patch_size[1])
         self.num_patches = self.grid_size[0] * self.grid_size[1]
 
-        self.proj = nn.Conv2d(256, 768, kernel_size=1)
+        self.proj = nn.Conv2d(in_c, embed_dim, kernel_size=1)
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
 
     def forward(self, x):
-        B, C, H, W = x.shape
-        # assert H == self.img_size[0] and W == self.img_size[1], \
-        #     f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
-        # print(x.shape)
+        # Check if input is 3D and reshape to 4D
+        if x.dim() == 3:  # [B, C, L]
+            B, C, L = x.shape
+            H = W = int(L**0.5)  # Assume square spatial dimensions
+            if H * W != L:
+                raise ValueError("Input sequence length is not a perfect square.")
+            x = x.permute(0, 2, 1).reshape(B, C, H, W)  # Reshape to [B, C, H, W]
 
-        # flatten: [B, C, H, W] -> [B, C, HW]
-        # transpose: [B, C, HW] -> [B, HW, C]
-        x = self.proj(x).flatten(2).transpose(1, 2)
+        B, C, H, W = x.shape
+        x = self.proj(x).flatten(2).transpose(1, 2)  # [B, num_patches, embed_dim]
         x = self.norm(x)
         return x
+
 
 
 class Attention(nn.Module):
@@ -517,56 +520,32 @@ class VisionTransformer(nn.Module):
                  qk_scale=None, representation_size=None, distilled=False, drop_ratio=0.,
                  attn_drop_ratio=0., drop_path_ratio=0., embed_layer=PatchEmbed, norm_layer=None,
                  act_layer=None):
-        super(VisionTransformer, self).__init__()
+        super().__init__()
+        self.patch_embed = embed_layer(img_size=img_size, patch_size=patch_size, in_c=in_c, embed_dim=embed_dim)
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim
 
-        # Use LayerNorm if norm_layer is None
-        norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
-        act_layer = act_layer or nn.GELU
-
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(torch.zeros(1, in_c + 1, embed_dim))
-        self.pos_drop = nn.Dropout(p=drop_ratio)
-
-        self.patch_embed = embed_layer(img_size=img_size, patch_size=patch_size, in_c=256, embed_dim=768)
         self.blocks = nn.Sequential(*[
             Block(dim=embed_dim, in_chans=in_c, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
                   qk_scale=qk_scale, drop_ratio=drop_ratio, attn_drop_ratio=attn_drop_ratio,
-                  drop_path_ratio=drop_path_ratio, norm_layer=norm_layer, act_layer=act_layer)
+                  drop_path_ratio=drop_path_ratio / depth, norm_layer=norm_layer, act_layer=act_layer)
             for _ in range(depth)
         ])
-        self.norm = norm_layer(embed_dim)
-
-        self.cbam = CBAM(embed_dim)
+        self.norm = norm_layer(embed_dim) if norm_layer else nn.LayerNorm(embed_dim)
         self.head = ClassificationHead(input_dim=embed_dim, target_dim=num_classes)
 
     def forward_features(self, x):
-        print(f"Input shape to forward_features: {x.shape}")  # Debugging input shape
-
-        # Handle flattened input directly
-        if len(x.shape) == 3:  # Input shape: [B, F, C]
-            B, F, C = x.shape
-        else:
-            raise ValueError("Unexpected input dimensions for forward_features.")
-
-        print(f"Shape before PatchEmbed: {x.shape}")
+        print(f"Input shape to forward_features: {x.shape}")  # Debugging
         x = self.patch_embed(x)  # Ensure PatchEmbed processes the input correctly
-        cls_token = self.cls_token.expand(x.size(0), -1, -1)
-        x = torch.cat((cls_token, x), dim=1)
-        x = self.pos_drop(x + self.pos_embed)
+        print(f"Shape after PatchEmbed: {x.shape}")  # Debugging
         x = self.blocks(x)
         x = self.norm(x)
-        return x[:, 0]
-
+        return x
 
     def forward(self, x):
         x = self.forward_features(x)
-        x = self.cbam(x.unsqueeze(-1).unsqueeze(-1))  # Apply CBAM
-        x = x.squeeze(-1).squeeze(-1)
         x = self.head(x)
         return x
-
 
 def _init_vit_weights(m):
     """
