@@ -3,31 +3,24 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class ChannelAttention(nn.Module):
-    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg', 'max']):
+    def __init__(self, in_channels, ratio=16):
         super(ChannelAttention, self).__init__()
-        self.gate_channels = gate_channels
-        self.mlp = nn.Sequential(
-            nn.Linear(gate_channels, gate_channels // reduction_ratio),
-            nn.ReLU(),
-            nn.Linear(gate_channels // reduction_ratio, gate_channels)
-        )
-        self.pool_types = pool_types
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+
+        self.fc1 = nn.Conv2d(in_channels, in_channels // ratio, kernel_size=1, bias=False)
+        self.relu1 = nn.ReLU()
+        self.fc2 = nn.Conv2d(in_channels // ratio, in_channels, kernel_size=1, bias=False)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        channel_att_sum = None
-        for pool_type in self.pool_types:
-            if pool_type == 'avg':
-                avg_pool = torch.mean(x, dim=(2, 3), keepdim=True)
-                channel_att_raw = self.mlp(avg_pool.view(x.size(0), -1))
-            elif pool_type == 'max':
-                max_pool, _ = torch.max(x, dim=(2, 3), keepdim=True)
-                channel_att_raw = self.mlp(max_pool.view(x.size(0), -1))
-            channel_att_sum = channel_att_sum + channel_att_raw if channel_att_sum is not None else channel_att_raw
-
-        scale = torch.sigmoid(channel_att_sum).unsqueeze(2).unsqueeze(3)
-        return x * scale
-
-
+        # Global AvgPool
+        avg_out = self.fc2(self.relu1(self.fc1(self.avg_pool(x))))
+        # Global MaxPool
+        max_out = self.fc2(self.relu1(self.fc1(self.max_pool(x))))
+        # Combine both
+        out = self.sigmoid(avg_out + max_out)
+        return x * out
 
 class SpatialAttention(nn.Module):
     def __init__(self, kernel_size=7):
