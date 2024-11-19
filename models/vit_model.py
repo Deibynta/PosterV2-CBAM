@@ -519,7 +519,7 @@ class VisionTransformer(nn.Module):
                  act_layer=None):
         super(VisionTransformer, self).__init__()
         self.num_classes = num_classes
-        self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
+        self.num_features = self.embed_dim = embed_dim
 
         # Use LayerNorm if norm_layer is None
         norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
@@ -542,7 +542,13 @@ class VisionTransformer(nn.Module):
         self.head = ClassificationHead(input_dim=embed_dim, target_dim=num_classes)
 
     def forward_features(self, x):
-        x = self.patch_embed(x)
+        # Ensure x has 4 dimensions
+        if len(x.shape) == 3:  # (Batch, Features, Sequence_Length)
+            B, F, L = x.shape
+            x = x.view(B, F, int(L**0.5), int(L**0.5))  # Assume square shape for 2D data
+
+        print(f"Input to PatchEmbed shape: {x.shape}")  # Debugging
+        x = self.patch_embed(x)  # Ensure PatchEmbed receives 4D input
         cls_token = self.cls_token.expand(x.size(0), -1, -1)
         x = torch.cat((cls_token, x), dim=1)
         x = self.pos_drop(x + self.pos_embed)
@@ -552,7 +558,7 @@ class VisionTransformer(nn.Module):
 
     def forward(self, x):
         x = self.forward_features(x)
-        x = self.cbam(x.unsqueeze(-1).unsqueeze(-1))
+        x = self.cbam(x.unsqueeze(-1).unsqueeze(-1))  # Apply CBAM
         x = x.squeeze(-1).squeeze(-1)
         x = self.head(x)
         return x
