@@ -326,14 +326,21 @@ class pyramid_trans_expr2(nn.Module):
             map_location=lambda storage, loc: storage,
         )
 
-        self.ir_back = self._load_pretrained_weights(self.ir_back, ir_checkpoint)
+        # Updated to use global function
+        self.ir_back = load_pretrained_weights(self.ir_back, ir_checkpoint)
 
-        self.attn1 = self._window_attention_global(dim=dims[0], num_heads=num_heads[0], window_size=window_size[0])
-        self.attn2 = self._window_attention_global(dim=dims[1], num_heads=num_heads[1], window_size=window_size[1])
-        self.attn3 = self._window_attention_global(dim=dims[2], num_heads=num_heads[2], window_size=window_size[2])
-        self.window1 = self._window(window_size=window_size[0], dim=dims[0])
-        self.window2 = self._window(window_size=window_size[1], dim=dims[1])
-        self.window3 = self._window(window_size=window_size[2], dim=dims[2])
+        self.attn1 = WindowAttentionGlobal(
+            dim=dims[0], num_heads=num_heads[0], window_size=window_size[0]
+        )
+        self.attn2 = WindowAttentionGlobal(
+            dim=dims[1], num_heads=num_heads[1], window_size=window_size[1]
+        )
+        self.attn3 = WindowAttentionGlobal(
+            dim=dims[2], num_heads=num_heads[2], window_size=window_size[2]
+        )
+        self.window1 = window(window_size=window_size[0], dim=dims[0])
+        self.window2 = window(window_size=window_size[1], dim=dims[1])
+        self.window3 = window(window_size=window_size[2], dim=dims[2])
         self.conv1 = nn.Conv2d(
             in_channels=dims[0],
             out_channels=dims[0],
@@ -357,13 +364,13 @@ class pyramid_trans_expr2(nn.Module):
         )
 
         dpr = [x.item() for x in torch.linspace(0, 0.5, 5)]
-        self.ffn1 = self._feedforward(
+        self.ffn1 = feedforward(
             dim=dims[0], window_size=window_size[0], layer_scale=1e-5, drop_path=dpr[0]
         )
-        self.ffn2 = self._feedforward(
+        self.ffn2 = feedforward(
             dim=dims[1], window_size=window_size[1], layer_scale=1e-5, drop_path=dpr[1]
         )
-        self.ffn3 = self._feedforward(
+        self.ffn3 = feedforward(
             dim=dims[2], window_size=window_size[2], layer_scale=1e-5, drop_path=dpr[2]
         )
 
@@ -380,7 +387,7 @@ class pyramid_trans_expr2(nn.Module):
         )
         self.embed_v = PatchEmbed(img_size=14, patch_size=14, in_c=256, embed_dim=768)
 
-        # CBAM added after ViT
+        # CBAM addition after ViT
         self.cbam_after_vit = CBAM(embed_dim)
 
     def forward(self, x):
@@ -388,15 +395,15 @@ class pyramid_trans_expr2(nn.Module):
         x_face1, x_face2, x_face3 = self.face_landback(x_face)
         x_face3 = self.last_face_conv(x_face3)
         x_face1, x_face2, x_face3 = (
-            self._to_channel_last(x_face1),
-            self._to_channel_last(x_face2),
-            self._to_channel_last(x_face3),
+            _to_channel_last(x_face1),
+            _to_channel_last(x_face2),
+            _to_channel_last(x_face3),
         )
 
         q1, q2, q3 = (
-            self._to_query(x_face1, self.N[0], self.num_heads[0], self.dim_head[0]),
-            self._to_query(x_face2, self.N[1], self.num_heads[1], self.dim_head[1]),
-            self._to_query(x_face3, self.N[2], self.num_heads[2], self.dim_head[2]),
+            _to_query(x_face1, self.N[0], self.num_heads[0], self.dim_head[0]),
+            _to_query(x_face2, self.N[1], self.num_heads[1], self.dim_head[1]),
+            _to_query(x_face3, self.N[2], self.num_heads[2], self.dim_head[2]),
         )
 
         x_ir1, x_ir2, x_ir3 = self.ir_back(x)
@@ -418,7 +425,7 @@ class pyramid_trans_expr2(nn.Module):
             self.ffn3(o3, shortcut3),
         )
 
-        o1, o2, o3 = self._to_channel_first(o1), self._to_channel_first(o2), self._to_channel_first(o3)
+        o1, o2, o3 = _to_channel_first(o1), _to_channel_first(o2), _to_channel_first(o3)
 
         o1, o2, o3 = (
             self.embed_q(o1).flatten(2).transpose(1, 2),
@@ -428,13 +435,13 @@ class pyramid_trans_expr2(nn.Module):
 
         o = torch.cat([o1, o2, o3], dim=1)
 
-        # Vision Transformer
         out = self.VIT(o)
 
-        # CBAM applied after ViT
-        out = self.cbam_after_vit(out)
+        # Apply CBAM after ViT
+        out = self.cbam_after_vit(out.unsqueeze(-1).unsqueeze(-1)).squeeze(-1).squeeze(-1)
 
         return out
+
 
 
 def compute_param_flop():
