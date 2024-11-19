@@ -542,12 +542,18 @@ class VisionTransformer(nn.Module):
         self.head = ClassificationHead(input_dim=embed_dim, target_dim=num_classes)
 
     def forward_features(self, x):
-        # Ensure x has 4 dimensions
+        print(f"Input shape to forward_features: {x.shape}")  # Debugging input shape
         if len(x.shape) == 3:  # (Batch, Features, Sequence_Length)
             B, F, L = x.shape
-            x = x.view(B, F, int(L**0.5), int(L**0.5))  # Assume square shape for 2D data
+            try:
+                H, W = int((L // F) ** 0.5), int((L // F) ** 0.5)
+                assert H * W == L // F, "Sequence length is not a perfect square."
+                x = x.view(B, F, H, W)
+            except AssertionError as e:
+                print(f"Error reshaping input: {e}")
+                raise ValueError("Input dimensions are incompatible for reshaping.")
 
-        print(f"Input to PatchEmbed shape: {x.shape}")  # Debugging
+        print(f"Shape before PatchEmbed: {x.shape}")
         x = self.patch_embed(x)  # Ensure PatchEmbed receives 4D input
         cls_token = self.cls_token.expand(x.size(0), -1, -1)
         x = torch.cat((cls_token, x), dim=1)
