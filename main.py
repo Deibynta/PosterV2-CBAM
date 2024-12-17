@@ -22,6 +22,8 @@ import numpy as np
 import datetime
 from torchsampler import ImbalancedDatasetSampler
 from models.PosterV2_7cls import *
+from models.matrix import plot_confusion_matrix
+
 
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -49,10 +51,11 @@ parser.add_argument(
 parser.add_argument(
     "--checkpoint_path", type=str, default="./checkpoint/" + time_str + "model.pth"
 )
+
 parser.add_argument(
     "--best_checkpoint_path",
     type=str,
-    default="./checkpoint/" + time_str + "raf-db-model_best.pth",
+    default="/content/drive/My Drive/PosterV2_CBAM/checkpoint/raf-db-model_best.pth",
 )
 parser.add_argument(
     "-j",
